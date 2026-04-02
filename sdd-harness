@@ -1,0 +1,204 @@
+#!/bin/bash
+# sdd-harness - CLI entry point for the SDD iterative harness system
+# Usage: sdd-harness init [target-dir] [options]
+
+set -euo pipefail
+
+# Resolve the directory where this script lives (to find templates/ and sdd-loop.sh)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+    cat <<'EOF'
+Usage: sdd-harness <command> [options]
+
+Commands:
+  init [target-dir]    Initialize SDD system in the target directory (default: .)
+
+Init Options:
+  --max-hours N        Maximum duration in hours (default: 6)
+  --max-cost N         Maximum cost in USD (default: 200)
+  --test-cmd CMD       Test command to run
+  --build-cmd CMD      Build command to run
+  --lint-cmd CMD       Lint command to run
+
+Examples:
+  sdd-harness init
+  sdd-harness init ./my-project
+  sdd-harness init --max-hours 4 --max-cost 100 --test-cmd "npm test"
+EOF
+}
+
+cmd_init() {
+    local target_dir="."
+    local max_hours=""
+    local max_cost=""
+    local test_cmd=""
+    local build_cmd=""
+    local lint_cmd=""
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --max-hours)
+                max_hours="$2"
+                shift 2
+                ;;
+            --max-cost)
+                max_cost="$2"
+                shift 2
+                ;;
+            --test-cmd)
+                test_cmd="$2"
+                shift 2
+                ;;
+            --build-cmd)
+                build_cmd="$2"
+                shift 2
+                ;;
+            --lint-cmd)
+                lint_cmd="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1" >&2
+                usage >&2
+                exit 1
+                ;;
+            *)
+                # First positional arg is the target directory
+                target_dir="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Resolve target to absolute path
+    target_dir="$(cd "$target_dir" 2>/dev/null && pwd)" || {
+        echo "Error: target directory '$target_dir' does not exist" >&2
+        exit 1
+    }
+
+    echo "Initializing SDD system in: $target_dir"
+
+    # 1. Create directory structure
+    mkdir -p "$target_dir/.sdd/specs"
+    mkdir -p "$target_dir/.sdd/plans"
+    mkdir -p "$target_dir/.sdd/tasks"
+    mkdir -p "$target_dir/.sdd/sprints"
+    mkdir -p "$target_dir/.sdd/reflections"
+    mkdir -p "$target_dir/.sdd/hooks"
+    mkdir -p "$target_dir/.claude/agents"
+
+    # 2. Copy hook scripts
+    cp "$SCRIPT_DIR/templates/.sdd/hooks/check-should-continue.sh" "$target_dir/.sdd/hooks/"
+    cp "$SCRIPT_DIR/templates/.sdd/hooks/validate-subagent-output.sh" "$target_dir/.sdd/hooks/"
+    cp "$SCRIPT_DIR/templates/.sdd/hooks/track-progress.sh" "$target_dir/.sdd/hooks/"
+
+    # 3. Copy config.json
+    cp "$SCRIPT_DIR/templates/.sdd/config.json" "$target_dir/.sdd/config.json"
+
+    # 4. Copy agent definitions
+    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-planner.md" "$target_dir/.claude/agents/"
+    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-generator.md" "$target_dir/.claude/agents/"
+    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-evaluator.md" "$target_dir/.claude/agents/"
+
+    # 5. Handle .claude/settings.json (merge if existing)
+    if [ -f "$target_dir/.claude/settings.json" ]; then
+        # Merge existing settings with template
+        local merged
+        merged=$(jq -s '.[0] * .[1]' "$target_dir/.claude/settings.json" "$SCRIPT_DIR/templates/.claude/settings.json")
+        echo "$merged" > "$target_dir/.claude/settings.json"
+    else
+        cp "$SCRIPT_DIR/templates/.claude/settings.json" "$target_dir/.claude/settings.json"
+    fi
+
+    # 6. Handle CLAUDE.md
+    if [ -f "$target_dir/CLAUDE.md" ]; then
+        # Append separator + SDD protocol to existing CLAUDE.md
+        printf "\n---\n" >> "$target_dir/CLAUDE.md"
+        cat "$SCRIPT_DIR/templates/CLAUDE.sdd.md" >> "$target_dir/CLAUDE.md"
+    else
+        cp "$SCRIPT_DIR/templates/CLAUDE.sdd.md" "$target_dir/CLAUDE.md"
+    fi
+
+    # 7. Apply custom config overrides with jq
+    if [ -n "$max_hours" ]; then
+        local tmp
+        tmp=$(mktemp)
+        jq ".max_duration_hours = $max_hours" "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
+    fi
+    if [ -n "$max_cost" ]; then
+        local tmp
+        tmp=$(mktemp)
+        jq ".max_cost_usd = $max_cost" "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
+    fi
+    if [ -n "$test_cmd" ]; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg cmd "$test_cmd" '.test_command = $cmd' "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
+    fi
+    if [ -n "$build_cmd" ]; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg cmd "$build_cmd" '.build_command = $cmd' "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
+    fi
+    if [ -n "$lint_cmd" ]; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg cmd "$lint_cmd" '.lint_command = $cmd' "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
+    fi
+
+    # 8. Create shared-notes.md with initial header
+    cat > "$target_dir/.sdd/shared-notes.md" << 'EOF'
+# SDD Shared Notes
+
+Cross-sprint observations and lessons learned.
+
+---
+EOF
+
+    # 9. Copy sdd-loop.sh and make executable
+    cp "$SCRIPT_DIR/sdd-loop.sh" "$target_dir/sdd-loop.sh"
+    chmod +x "$target_dir/sdd-loop.sh"
+
+    # 10. Print summary
+    echo ""
+    echo "SDD system initialized successfully!"
+    echo ""
+    echo "Created:"
+    echo "  .sdd/              - SDD state and configuration"
+    echo "  .sdd/config.json   - Configuration (edit to customize)"
+    echo "  .sdd/hooks/        - Hook scripts for Claude Code"
+    echo "  .claude/agents/    - Agent definitions (planner, generator, evaluator)"
+    echo "  .claude/settings.json - Claude Code hooks wiring"
+    echo "  CLAUDE.md          - SDD protocol instructions"
+    echo "  sdd-loop.sh        - Outer loop controller"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Review .sdd/config.json and adjust limits"
+    echo "  2. Run: ./sdd-loop.sh \"Your task prompt here\""
+}
+
+# --- Main entry point ---
+
+if [ $# -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    init)
+        cmd_init "$@"
+        ;;
+    --help|-h|help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $COMMAND" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
