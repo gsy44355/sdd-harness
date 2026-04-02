@@ -76,3 +76,82 @@ EOF
     rm -rf "$tmpdir"
 }
 test_continue_allows_when_status_failed
+
+# --- validate-subagent-output.sh ---
+
+test_validate_passes_when_contract_exists() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "contracting",
+  "current_sprint": 1
+}
+EOF
+    echo "# Sprint Contract" > "$tmpdir/.sdd/sprints/sprint-001/contract.md"
+    local exit_code
+    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should pass when contract.md exists for contracting phase"
+    rm -rf "$tmpdir"
+}
+test_validate_passes_when_contract_exists
+
+test_validate_fails_when_contract_missing() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "contracting",
+  "current_sprint": 1
+}
+EOF
+    local stderr_out exit_code
+    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") 2>&1 ) && exit_code=$? || exit_code=$?
+    assert_eq "2" "$exit_code" "should fail when contract.md missing"
+    assert_contains "$stderr_out" "contract.md" "stderr should mention missing file"
+    rm -rf "$tmpdir"
+}
+test_validate_fails_when_contract_missing
+
+test_validate_passes_when_evaluation_exists() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-002"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "evaluating",
+  "current_sprint": 2
+}
+EOF
+    echo "# Evaluation" > "$tmpdir/.sdd/sprints/sprint-002/evaluation.md"
+    local exit_code
+    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should pass when evaluation.md exists for evaluating phase"
+    rm -rf "$tmpdir"
+}
+test_validate_passes_when_evaluation_exists
+
+test_validate_passes_when_spec_exists_for_planning() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/specs" "$tmpdir/.sdd/tasks"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "planning",
+  "current_sprint": 0
+}
+EOF
+    echo "# Spec" > "$tmpdir/.sdd/specs/spec.md"
+    echo "# Tasks" > "$tmpdir/.sdd/tasks/tasks.md"
+    local exit_code
+    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should pass when spec and tasks exist for planning phase"
+    rm -rf "$tmpdir"
+}
+test_validate_passes_when_spec_exists_for_planning
