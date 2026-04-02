@@ -155,3 +155,39 @@ EOF
     rm -rf "$tmpdir"
 }
 test_validate_passes_when_spec_exists_for_planning
+
+# --- track-progress.sh ---
+
+test_track_updates_last_activity() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "last_activity_at": "2026-01-01T00:00:00Z"
+}
+EOF
+    (cd "$tmpdir" && bash "$HOOK_DIR/track-progress.sh") >/dev/null 2>&1
+    local updated
+    updated=$(jq -r '.last_activity_at' "$tmpdir/.sdd/state.json")
+    if [ "$updated" != "2026-01-01T00:00:00Z" ] && [ -n "$updated" ] && [ "$updated" != "null" ]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS="${ERRORS}\n  FAIL: track should update last_activity_at\n    still: ${updated}"
+    fi
+    rm -rf "$tmpdir"
+}
+test_track_updates_last_activity
+
+test_track_handles_missing_state() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    local exit_code
+    (cd "$tmpdir" && bash "$HOOK_DIR/track-progress.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should exit 0 even if state.json missing"
+    rm -rf "$tmpdir"
+}
+test_track_handles_missing_state
