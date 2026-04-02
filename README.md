@@ -60,7 +60,7 @@ You: "Build a REST API for a blog with posts, comments, and auth"
 ### Option 1: Clone and install
 
 ```bash
-git clone https://github.com/gsy/sdd-harness.git
+git clone https://github.com/gsy44355/sdd-harness.git
 cd sdd-harness
 bash install.sh
 ```
@@ -68,7 +68,7 @@ bash install.sh
 ### Option 2: Manual
 
 ```bash
-git clone https://github.com/gsy/sdd-harness.git
+git clone https://github.com/gsy44355/sdd-harness.git
 # Add to your PATH
 export PATH="$PWD/sdd-harness:$PATH"
 ```
@@ -254,7 +254,7 @@ SDD Harness 把 Claude Code 变成一个可以自主运行数小时的开发系�
 ### 方式一：克隆并安装
 
 ```bash
-git clone https://github.com/gsy/sdd-harness.git
+git clone https://github.com/gsy44355/sdd-harness.git
 cd sdd-harness
 bash install.sh
 ```
@@ -262,7 +262,7 @@ bash install.sh
 ### 方式二：手动安装
 
 ```bash
-git clone https://github.com/gsy/sdd-harness.git
+git clone https://github.com/gsy44355/sdd-harness.git
 # 添加到 PATH
 export PATH="$PWD/sdd-harness:$PATH"
 ```

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${SDD_INSTALL_DIR:-$HOME/.local/bin}"
-REPO_URL="https://github.com/gsy/sdd-harness"
+REPO_URL="https://github.com/gsy44355/sdd-harness"
 
 # Determine source directory
 if [ -f "$(dirname "$0")/sdd-harness" ]; then
