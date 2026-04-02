@@ -1,0 +1,18 @@
+{
+  "max_duration_hours": 6,
+  "max_cost_usd": 200,
+  "max_consecutive_failures": 3,
+  "max_consecutive_no_progress": 5,
+  "max_contract_negotiation_rounds": 3,
+  "max_implementation_retries": 3,
+  "reflection_interval": 3,
+  "evaluator_pass_threshold": 7,
+  "evaluator_criteria": [
+    {"name": "correctness", "weight": 3, "threshold": 6},
+    {"name": "test_coverage", "weight": 2, "threshold": 5},
+    {"name": "code_quality", "weight": 1, "threshold": 5}
+  ],
+  "test_command": "",
+  "build_command": "",
+  "lint_command": ""
+}
