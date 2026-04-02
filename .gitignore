@@ -1,3 +1,4 @@
 .DS_Store
 continuous-claude/
 .playwright-cli/
+.idea/

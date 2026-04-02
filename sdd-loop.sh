@@ -244,7 +244,9 @@ main() {
 
         set +e
         # shellcheck disable=SC2086
-        claude --output-format json \
+        claude --dangerously-skip-permissions \
+            --output-format json \
+            --max-turns 50 \
             $resume_flag \
             -p "$task_prompt" \
             > "$output_file" 2>&1
