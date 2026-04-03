@@ -19,19 +19,6 @@ test_init_creates_sdd_directory() {
 }
 test_init_creates_sdd_directory
 
-# --- test_init_creates_claude_agents ---
-
-test_init_creates_claude_agents() {
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    (cd "$tmpdir" && bash "$HARNESS" init) >/dev/null 2>&1
-    assert_file_exists "$tmpdir/.claude/agents/sdd-planner.md" "init creates sdd-planner.md"
-    assert_file_exists "$tmpdir/.claude/agents/sdd-generator.md" "init creates sdd-generator.md"
-    assert_file_exists "$tmpdir/.claude/agents/sdd-evaluator.md" "init creates sdd-evaluator.md"
-    rm -rf "$tmpdir"
-}
-test_init_creates_claude_agents
-
 # --- test_init_creates_settings ---
 
 test_init_creates_settings() {
@@ -41,7 +28,7 @@ test_init_creates_settings() {
     assert_file_exists "$tmpdir/.claude/settings.json" "init creates settings.json"
     local hook_count
     hook_count=$(jq '.hooks | keys | length' "$tmpdir/.claude/settings.json")
-    assert_eq "3" "$hook_count" "settings.json has 3 hook events"
+    assert_eq "2" "$hook_count" "settings.json has 2 hook events (Stop, PostToolUse)"
     rm -rf "$tmpdir"
 }
 test_init_creates_settings
@@ -53,7 +40,6 @@ test_init_creates_hooks() {
     tmpdir=$(mktemp -d)
     (cd "$tmpdir" && bash "$HARNESS" init) >/dev/null 2>&1
     assert_file_exists "$tmpdir/.sdd/hooks/check-should-continue.sh" "init creates check-should-continue.sh"
-    assert_file_exists "$tmpdir/.sdd/hooks/validate-subagent-output.sh" "init creates validate-subagent-output.sh"
     assert_file_exists "$tmpdir/.sdd/hooks/track-progress.sh" "init creates track-progress.sh"
     rm -rf "$tmpdir"
 }
@@ -88,7 +74,7 @@ test_init_appends_claude_md() {
     content=$(cat "$tmpdir/CLAUDE.md")
     assert_contains "$content" "My Existing Project" "CLAUDE.md preserves old content"
     assert_contains "$content" "Some existing instructions" "CLAUDE.md preserves old instructions"
-    assert_contains "$content" "SDD" "CLAUDE.md has SDD protocol appended"
+    assert_contains "$content" "SDD" "CLAUDE.md has SDD content appended"
     assert_contains "$content" "^---$" "CLAUDE.md has separator"
     rm -rf "$tmpdir"
 }
@@ -103,7 +89,7 @@ test_init_creates_claude_md_if_missing() {
     assert_file_exists "$tmpdir/CLAUDE.md" "init creates CLAUDE.md when missing"
     local content
     content=$(cat "$tmpdir/CLAUDE.md")
-    assert_contains "$content" "SDD" "created CLAUDE.md contains SDD protocol"
+    assert_contains "$content" "SDD" "created CLAUDE.md contains SDD content"
     rm -rf "$tmpdir"
 }
 test_init_creates_claude_md_if_missing
@@ -135,10 +121,42 @@ test_init_to_specific_directory() {
     mkdir -p "$target"
     bash "$HARNESS" init "$target" >/dev/null 2>&1
     assert_dir_exists "$target/.sdd" "init to specific dir creates .sdd"
-    assert_dir_exists "$target/.claude/agents" "init to specific dir creates .claude/agents"
+    assert_dir_exists "$target/.claude" "init to specific dir creates .claude"
     assert_file_exists "$target/.sdd/config.json" "init to specific dir creates config.json"
     assert_file_exists "$target/CLAUDE.md" "init to specific dir creates CLAUDE.md"
     assert_file_exists "$target/sdd-loop.sh" "init to specific dir creates sdd-loop.sh"
     rm -rf "$tmpdir"
 }
 test_init_to_specific_directory
+
+# --- test_init_creates_shared_notes ---
+
+test_init_creates_shared_notes() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    (cd "$tmpdir" && bash "$HARNESS" init) >/dev/null 2>&1
+    assert_file_exists "$tmpdir/.sdd/shared-notes.md" "init creates shared-notes.md"
+    local content
+    content=$(cat "$tmpdir/.sdd/shared-notes.md")
+    assert_contains "$content" "Shared Notes" "shared-notes.md has header"
+    rm -rf "$tmpdir"
+}
+test_init_creates_shared_notes
+
+# --- test_init_merges_existing_settings ---
+
+test_init_merges_existing_settings() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.claude"
+    echo '{"customKey": "customValue"}' > "$tmpdir/.claude/settings.json"
+    (cd "$tmpdir" && bash "$HARNESS" init) >/dev/null 2>&1
+    local custom_val
+    custom_val=$(jq -r '.customKey' "$tmpdir/.claude/settings.json")
+    assert_eq "customValue" "$custom_val" "init merges with existing settings"
+    local has_hooks
+    has_hooks=$(jq 'has("hooks")' "$tmpdir/.claude/settings.json")
+    assert_eq "true" "$has_hooks" "merged settings has hooks"
+    rm -rf "$tmpdir"
+}
+test_init_merges_existing_settings

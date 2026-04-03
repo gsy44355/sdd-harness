@@ -95,22 +95,16 @@ cmd_init() {
     mkdir -p "$target_dir/.sdd/sprints"
     mkdir -p "$target_dir/.sdd/reflections"
     mkdir -p "$target_dir/.sdd/hooks"
-    mkdir -p "$target_dir/.claude/agents"
+    mkdir -p "$target_dir/.claude"
 
     # 2. Copy hook scripts
     cp "$SCRIPT_DIR/templates/.sdd/hooks/check-should-continue.sh" "$target_dir/.sdd/hooks/"
-    cp "$SCRIPT_DIR/templates/.sdd/hooks/validate-subagent-output.sh" "$target_dir/.sdd/hooks/"
     cp "$SCRIPT_DIR/templates/.sdd/hooks/track-progress.sh" "$target_dir/.sdd/hooks/"
 
     # 3. Copy config.json
     cp "$SCRIPT_DIR/templates/.sdd/config.json" "$target_dir/.sdd/config.json"
 
-    # 4. Copy agent definitions
-    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-planner.md" "$target_dir/.claude/agents/"
-    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-generator.md" "$target_dir/.claude/agents/"
-    cp "$SCRIPT_DIR/templates/.claude/agents/sdd-evaluator.md" "$target_dir/.claude/agents/"
-
-    # 5. Handle .claude/settings.json (merge if existing)
+    # 4. Handle .claude/settings.json (merge if existing)
     if [ -f "$target_dir/.claude/settings.json" ]; then
         # Merge existing settings with template
         local merged
@@ -120,7 +114,7 @@ cmd_init() {
         cp "$SCRIPT_DIR/templates/.claude/settings.json" "$target_dir/.claude/settings.json"
     fi
 
-    # 6. Handle CLAUDE.md
+    # 5. Handle CLAUDE.md
     if [ -f "$target_dir/CLAUDE.md" ]; then
         # Append separator + SDD protocol to existing CLAUDE.md
         printf "\n---\n" >> "$target_dir/CLAUDE.md"
@@ -129,7 +123,7 @@ cmd_init() {
         cp "$SCRIPT_DIR/templates/CLAUDE.sdd.md" "$target_dir/CLAUDE.md"
     fi
 
-    # 7. Apply custom config overrides with jq
+    # 6. Apply custom config overrides with jq
     if [ -n "$max_hours" ]; then
         local tmp
         tmp=$(mktemp)
@@ -156,7 +150,7 @@ cmd_init() {
         jq --arg cmd "$lint_cmd" '.lint_command = $cmd' "$target_dir/.sdd/config.json" > "$tmp" && mv "$tmp" "$target_dir/.sdd/config.json"
     fi
 
-    # 8. Create shared-notes.md with initial header
+    # 7. Create shared-notes.md with initial header
     cat > "$target_dir/.sdd/shared-notes.md" << 'EOF'
 # SDD Shared Notes
 
@@ -165,11 +159,11 @@ Cross-sprint observations and lessons learned.
 ---
 EOF
 
-    # 9. Copy sdd-loop.sh and make executable
+    # 8. Copy sdd-loop.sh and make executable
     cp "$SCRIPT_DIR/sdd-loop.sh" "$target_dir/sdd-loop.sh"
     chmod +x "$target_dir/sdd-loop.sh"
 
-    # 10. Print summary
+    # 9. Print summary
     echo ""
     echo "SDD system initialized successfully!"
     echo ""
@@ -177,10 +171,9 @@ EOF
     echo "  .sdd/              - SDD state and configuration"
     echo "  .sdd/config.json   - Configuration (edit to customize)"
     echo "  .sdd/hooks/        - Hook scripts for Claude Code"
-    echo "  .claude/agents/    - Agent definitions (planner, generator, evaluator)"
     echo "  .claude/settings.json - Claude Code hooks wiring"
-    echo "  CLAUDE.md          - SDD protocol instructions"
-    echo "  sdd-loop.sh        - Outer loop controller"
+    echo "  CLAUDE.md          - SDD project context"
+    echo "  sdd-loop.sh        - SDD orchestrator"
     echo ""
     echo "Next steps:"
     echo "  1. Review .sdd/config.json and adjust limits"

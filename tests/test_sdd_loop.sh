@@ -1,4 +1,4 @@
-# tests/test_sdd_loop.sh - Tests for sdd-loop.sh outer controller
+# tests/test_sdd_loop.sh - Tests for sdd-loop.sh orchestrator
 
 SDD_LOOP="$PROJECT_ROOT/sdd-loop.sh"
 
@@ -365,6 +365,9 @@ EOF
     local prompt
     prompt=$(jq -r '.task_prompt' "$tmpdir/.sdd/state.json")
     assert_eq "Build a web app" "$prompt" "initialize_state should store task_prompt"
+    local phase
+    phase=$(jq -r '.phase' "$tmpdir/.sdd/state.json")
+    assert_eq "planning" "$phase" "initialize_state should set phase to planning"
     rm -rf "$tmpdir"
 }
 test_initialize_state_creates_state
@@ -380,7 +383,8 @@ test_log_iteration_appends_jsonl() {
 EOF
     cat > "$tmpdir/.sdd/state.json" << 'EOF'
 {
-  "status": "running"
+  "status": "running",
+  "phase": "implementing"
 }
 EOF
     (cd "$tmpdir" && source "$SDD_LOOP" --source-only && log_iteration 1 0)
@@ -388,6 +392,438 @@ EOF
     local sprint_num
     sprint_num=$(head -1 "$tmpdir/.sdd/iterations.jsonl" | jq -r '.sprint')
     assert_eq "1" "$sprint_num" "log_iteration should log sprint number"
+    local phase
+    phase=$(head -1 "$tmpdir/.sdd/iterations.jsonl" | jq -r '.phase')
+    assert_eq "implementing" "$phase" "log_iteration should log phase"
     rm -rf "$tmpdir"
 }
 test_log_iteration_appends_jsonl
+
+# --- get_next_task ---
+
+test_get_next_task_returns_first_uncompleted() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/tasks"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/tasks/tasks.md" << 'EOF'
+# Tasks
+
+- [x] task-001: Setup project — Initialize project structure
+- [ ] task-002: Add API routes — Create REST endpoints
+- [ ] task-003: Add tests — Write unit tests
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && get_next_task)
+    assert_contains "$result" "task-002" "get_next_task should return first uncompleted task"
+    rm -rf "$tmpdir"
+}
+test_get_next_task_returns_first_uncompleted
+
+test_get_next_task_returns_empty_when_all_done() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/tasks"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/tasks/tasks.md" << 'EOF'
+# Tasks
+
+- [x] task-001: Setup project — Initialize project structure
+- [x] task-002: Add API routes — Create REST endpoints
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && get_next_task)
+    assert_eq "" "$result" "get_next_task should return empty when all tasks completed"
+    rm -rf "$tmpdir"
+}
+test_get_next_task_returns_empty_when_all_done
+
+test_get_next_task_returns_empty_when_no_tasks_file() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && get_next_task)
+    assert_eq "" "$result" "get_next_task should return empty when no tasks file"
+    rm -rf "$tmpdir"
+}
+test_get_next_task_returns_empty_when_no_tasks_file
+
+# --- mark_task_completed ---
+
+test_mark_task_completed_updates_checkbox() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/tasks"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/tasks/tasks.md" << 'EOF'
+# Tasks
+
+- [ ] task-001: Setup project — Initialize project structure
+- [ ] task-002: Add API routes — Create REST endpoints
+EOF
+    (cd "$tmpdir" && source "$SDD_LOOP" --source-only && mark_task_completed "task-001")
+    local content
+    content=$(cat "$tmpdir/.sdd/tasks/tasks.md")
+    assert_contains "$content" "\- \[x\] task-001" "mark_task_completed should check the task"
+    # task-002 should remain unchecked
+    assert_contains "$content" "\- \[ \] task-002" "mark_task_completed should not affect other tasks"
+    rm -rf "$tmpdir"
+}
+test_mark_task_completed_updates_checkbox
+
+# --- get_task_counts ---
+
+test_get_task_counts_returns_correct_counts() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/tasks"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/tasks/tasks.md" << 'EOF'
+# Tasks
+
+- [x] task-001: Setup — Done
+- [x] task-002: Config — Done
+- [ ] task-003: API — Todo
+- [ ] task-004: Tests — Todo
+- [ ] task-005: Deploy — Todo
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && get_task_counts)
+    assert_eq "2|5" "$result" "get_task_counts should return completed|total"
+    rm -rf "$tmpdir"
+}
+test_get_task_counts_returns_correct_counts
+
+test_get_task_counts_no_tasks_file() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && get_task_counts)
+    assert_eq "0|0" "$result" "get_task_counts should return 0|0 when no tasks file"
+    rm -rf "$tmpdir"
+}
+test_get_task_counts_no_tasks_file
+
+# --- parse_contract_decision ---
+
+test_parse_contract_decision_approve() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/sprints/sprint-001/contract-review.md" << 'EOF'
+# Contract Review
+
+## Decision: APPROVE
+
+Everything looks good.
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_contract_decision 1)
+    assert_eq "APPROVE" "$result" "parse_contract_decision should return APPROVE"
+    rm -rf "$tmpdir"
+}
+test_parse_contract_decision_approve
+
+test_parse_contract_decision_revise() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/sprints/sprint-001/contract-review.md" << 'EOF'
+# Contract Review
+
+## Decision: REVISE
+
+## Required Revisions
+1. Add error handling tests
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_contract_decision 1)
+    assert_eq "REVISE" "$result" "parse_contract_decision should return REVISE"
+    rm -rf "$tmpdir"
+}
+test_parse_contract_decision_revise
+
+test_parse_contract_decision_defaults_approve_when_missing() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_contract_decision 1)
+    assert_eq "APPROVE" "$result" "parse_contract_decision should default to APPROVE when file missing"
+    rm -rf "$tmpdir"
+}
+test_parse_contract_decision_defaults_approve_when_missing
+
+# --- parse_evaluation_decision ---
+
+test_parse_evaluation_decision_pass() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/sprints/sprint-001/evaluation.md" << 'EOF'
+# Evaluation
+
+## Overall: PASS
+
+Score: 8.5/10
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_evaluation_decision 1)
+    assert_eq "PASS" "$result" "parse_evaluation_decision should return PASS"
+    rm -rf "$tmpdir"
+}
+test_parse_evaluation_decision_pass
+
+test_parse_evaluation_decision_fail() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/sprints/sprint-001/evaluation.md" << 'EOF'
+# Evaluation
+
+## Overall: FAIL
+
+## Specific Issues
+1. Tests are not passing
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_evaluation_decision 1)
+    assert_eq "FAIL" "$result" "parse_evaluation_decision should return FAIL"
+    rm -rf "$tmpdir"
+}
+test_parse_evaluation_decision_fail
+
+test_parse_evaluation_decision_defaults_fail_when_missing() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && parse_evaluation_decision 1)
+    assert_eq "FAIL" "$result" "parse_evaluation_decision should default to FAIL when file missing"
+    rm -rf "$tmpdir"
+}
+test_parse_evaluation_decision_defaults_fail_when_missing
+
+# --- build_planning_prompt ---
+
+test_build_planning_prompt_includes_user_input() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && build_planning_prompt "Build a REST API")
+    assert_contains "$result" "Build a REST API" "planning prompt should include user input"
+    assert_contains "$result" "SDD Planner" "planning prompt should identify role"
+    assert_contains "$result" "spec.md" "planning prompt should mention spec output"
+    assert_contains "$result" "tasks.md" "planning prompt should mention tasks output"
+    rm -rf "$tmpdir"
+}
+test_build_planning_prompt_includes_user_input
+
+# --- build_contract_prompt ---
+
+test_build_contract_prompt_includes_task_info() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && build_contract_prompt "task-001" "Setup project" 1)
+    assert_contains "$result" "task-001" "contract prompt should include task id"
+    assert_contains "$result" "Setup project" "contract prompt should include task description"
+    assert_contains "$result" "sprint-001" "contract prompt should include sprint dir"
+    assert_contains "$result" "SDD Generator" "contract prompt should identify role"
+    rm -rf "$tmpdir"
+}
+test_build_contract_prompt_includes_task_info
+
+test_build_contract_prompt_includes_feedback() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && build_contract_prompt "task-001" "Setup" 1 "Add more test coverage")
+    assert_contains "$result" "Add more test coverage" "contract prompt should include feedback"
+    rm -rf "$tmpdir"
+}
+test_build_contract_prompt_includes_feedback
+
+# --- build_evaluation_prompt ---
+
+test_build_evaluation_prompt_includes_config() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{
+  "test_command": "npm test",
+  "evaluator_pass_threshold": 7
+}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && build_evaluation_prompt 1)
+    assert_contains "$result" "npm test" "evaluation prompt should include test command"
+    assert_contains "$result" "7/10" "evaluation prompt should include pass threshold"
+    assert_contains "$result" "SDD Evaluator" "evaluation prompt should identify role"
+    assert_contains "$result" "CANNOT modify" "evaluation prompt should restrict modifications"
+    rm -rf "$tmpdir"
+}
+test_build_evaluation_prompt_includes_config
+
+# --- format_duration ---
+
+test_format_duration_hours_and_minutes() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && format_duration 7500)
+    assert_eq "2h 5m" "$result" "format_duration should format hours and minutes"
+    rm -rf "$tmpdir"
+}
+test_format_duration_hours_and_minutes
+
+test_format_duration_minutes_only() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && format_duration 300)
+    assert_eq "5m" "$result" "format_duration should show only minutes when < 1h"
+    rm -rf "$tmpdir"
+}
+test_format_duration_minutes_only
+
+# --- extract_feedback ---
+
+test_extract_feedback_from_evaluation() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd"
+    cat > "$tmpdir/.sdd/config.json" << 'EOF'
+{}
+EOF
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{}
+EOF
+    local feedback_file="$tmpdir/evaluation.md"
+    cat > "$feedback_file" << 'EOF'
+# Evaluation
+
+## Overall: FAIL
+
+## Specific Issues
+1. Missing error handling
+2. Tests don't cover edge cases
+
+## Positive Notes
+- Good code structure
+EOF
+    local result
+    result=$(cd "$tmpdir" && source "$SDD_LOOP" --source-only && extract_feedback "$feedback_file")
+    assert_contains "$result" "Missing error handling" "extract_feedback should include issues"
+    rm -rf "$tmpdir"
+}
+test_extract_feedback_from_evaluation

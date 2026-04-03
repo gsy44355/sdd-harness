@@ -2,44 +2,7 @@
 
 HOOK_DIR="$PROJECT_ROOT/templates/.sdd/hooks"
 
-# --- check-should-continue.sh ---
-
-test_continue_blocks_when_tasks_remain() {
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/.sdd"
-    cat > "$tmpdir/.sdd/state.json" << 'EOF'
-{
-  "status": "running",
-  "tasks_total": 5,
-  "tasks_completed": 2
-}
-EOF
-    local stderr_out exit_code
-    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") 2>&1 ) && exit_code=$? || exit_code=$?
-    assert_eq "2" "$exit_code" "should exit 2 when tasks remain"
-    assert_contains "$stderr_out" "3" "stderr should mention remaining task count"
-    rm -rf "$tmpdir"
-}
-test_continue_blocks_when_tasks_remain
-
-test_continue_allows_when_all_tasks_done() {
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/.sdd"
-    cat > "$tmpdir/.sdd/state.json" << 'EOF'
-{
-  "status": "running",
-  "tasks_total": 5,
-  "tasks_completed": 5
-}
-EOF
-    local exit_code
-    (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
-    assert_eq "0" "$exit_code" "should exit 0 when all tasks done"
-    rm -rf "$tmpdir"
-}
-test_continue_allows_when_all_tasks_done
+# --- check-should-continue.sh (phase-aware Stop hook) ---
 
 test_continue_allows_when_status_completed() {
     local tmpdir
@@ -49,7 +12,9 @@ test_continue_allows_when_status_completed() {
 {
   "status": "completed",
   "tasks_total": 5,
-  "tasks_completed": 3
+  "tasks_completed": 3,
+  "phase": "implementing",
+  "current_sprint": 2
 }
 EOF
     local exit_code
@@ -67,7 +32,9 @@ test_continue_allows_when_status_failed() {
 {
   "status": "failed",
   "tasks_total": 5,
-  "tasks_completed": 1
+  "tasks_completed": 1,
+  "phase": "implementing",
+  "current_sprint": 1
 }
 EOF
     local exit_code
@@ -77,66 +44,28 @@ EOF
 }
 test_continue_allows_when_status_failed
 
-# --- validate-subagent-output.sh ---
-
-test_validate_passes_when_contract_exists() {
+test_continue_blocks_when_planning_incomplete() {
     local tmpdir
     tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    mkdir -p "$tmpdir/.sdd"
     cat > "$tmpdir/.sdd/state.json" << 'EOF'
 {
   "status": "running",
-  "phase": "contracting",
-  "current_sprint": 1
-}
-EOF
-    echo "# Sprint Contract" > "$tmpdir/.sdd/sprints/sprint-001/contract.md"
-    local exit_code
-    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
-    assert_eq "0" "$exit_code" "should pass when contract.md exists for contracting phase"
-    rm -rf "$tmpdir"
-}
-test_validate_passes_when_contract_exists
-
-test_validate_fails_when_contract_missing() {
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
-    cat > "$tmpdir/.sdd/state.json" << 'EOF'
-{
-  "status": "running",
-  "phase": "contracting",
-  "current_sprint": 1
+  "phase": "planning",
+  "current_sprint": 0,
+  "tasks_total": 0,
+  "tasks_completed": 0
 }
 EOF
     local stderr_out exit_code
-    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") 2>&1 ) && exit_code=$? || exit_code=$?
-    assert_eq "2" "$exit_code" "should fail when contract.md missing"
-    assert_contains "$stderr_out" "contract.md" "stderr should mention missing file"
+    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") 2>&1 ) && exit_code=$? || exit_code=$?
+    assert_eq "2" "$exit_code" "should exit 2 when planning output missing"
+    assert_contains "$stderr_out" "spec.md" "stderr should mention missing spec"
     rm -rf "$tmpdir"
 }
-test_validate_fails_when_contract_missing
+test_continue_blocks_when_planning_incomplete
 
-test_validate_passes_when_evaluation_exists() {
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/.sdd/sprints/sprint-002"
-    cat > "$tmpdir/.sdd/state.json" << 'EOF'
-{
-  "status": "running",
-  "phase": "evaluating",
-  "current_sprint": 2
-}
-EOF
-    echo "# Evaluation" > "$tmpdir/.sdd/sprints/sprint-002/evaluation.md"
-    local exit_code
-    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
-    assert_eq "0" "$exit_code" "should pass when evaluation.md exists for evaluating phase"
-    rm -rf "$tmpdir"
-}
-test_validate_passes_when_evaluation_exists
-
-test_validate_passes_when_spec_exists_for_planning() {
+test_continue_allows_when_planning_complete() {
     local tmpdir
     tmpdir=$(mktemp -d)
     mkdir -p "$tmpdir/.sdd/specs" "$tmpdir/.sdd/tasks"
@@ -144,17 +73,82 @@ test_validate_passes_when_spec_exists_for_planning() {
 {
   "status": "running",
   "phase": "planning",
-  "current_sprint": 0
+  "current_sprint": 0,
+  "tasks_total": 0,
+  "tasks_completed": 0
 }
 EOF
     echo "# Spec" > "$tmpdir/.sdd/specs/spec.md"
     echo "# Tasks" > "$tmpdir/.sdd/tasks/tasks.md"
     local exit_code
-    (cd "$tmpdir" && bash "$HOOK_DIR/validate-subagent-output.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
-    assert_eq "0" "$exit_code" "should pass when spec and tasks exist for planning phase"
+    (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should exit 0 when planning output exists"
     rm -rf "$tmpdir"
 }
-test_validate_passes_when_spec_exists_for_planning
+test_continue_allows_when_planning_complete
+
+test_continue_blocks_when_contract_missing() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "contracting",
+  "current_sprint": 1,
+  "tasks_total": 5,
+  "tasks_completed": 0
+}
+EOF
+    local stderr_out exit_code
+    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") 2>&1 ) && exit_code=$? || exit_code=$?
+    assert_eq "2" "$exit_code" "should exit 2 when contract.md missing"
+    assert_contains "$stderr_out" "contract.md" "stderr should mention missing contract"
+    rm -rf "$tmpdir"
+}
+test_continue_blocks_when_contract_missing
+
+test_continue_allows_when_contract_exists() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-001"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "contracting",
+  "current_sprint": 1,
+  "tasks_total": 5,
+  "tasks_completed": 0
+}
+EOF
+    echo "# Contract" > "$tmpdir/.sdd/sprints/sprint-001/contract.md"
+    local exit_code
+    (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") >/dev/null 2>&1 && exit_code=$? || exit_code=$?
+    assert_eq "0" "$exit_code" "should exit 0 when contract exists"
+    rm -rf "$tmpdir"
+}
+test_continue_allows_when_contract_exists
+
+test_continue_blocks_when_evaluation_missing() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/.sdd/sprints/sprint-002"
+    cat > "$tmpdir/.sdd/state.json" << 'EOF'
+{
+  "status": "running",
+  "phase": "evaluating",
+  "current_sprint": 2,
+  "tasks_total": 5,
+  "tasks_completed": 1
+}
+EOF
+    local stderr_out exit_code
+    stderr_out=$( (cd "$tmpdir" && bash "$HOOK_DIR/check-should-continue.sh") 2>&1 ) && exit_code=$? || exit_code=$?
+    assert_eq "2" "$exit_code" "should exit 2 when evaluation.md missing"
+    assert_contains "$stderr_out" "evaluation.md" "stderr should mention missing evaluation"
+    rm -rf "$tmpdir"
+}
+test_continue_blocks_when_evaluation_missing
 
 # --- track-progress.sh ---
 
