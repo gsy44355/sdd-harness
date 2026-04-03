@@ -22,7 +22,14 @@ The orchestrator drives each development phase as a separate Claude session with
 
 - Read existing code before making changes
 - Write tests for all new functionality
-- Make meaningful git commits with clear messages
-- Record discoveries and learnings in `.sdd/shared-notes.md`
 - Follow the existing code style and patterns
+- Record discoveries and learnings in `.sdd/shared-notes.md`
 - Be honest about difficulties and uncertainties in implementation records
+
+## Git Version Control
+
+Git commits are mandatory during implementation. The outer orchestrator tracks progress via commit history.
+- Ensure `.gitignore` exists with sensible defaults before first commit
+- Commit after each logical unit of work with clear messages (e.g., `feat(task-001): add user model`)
+- After completing a sprint, commit `.sdd/` artifacts: `git add .sdd/ && git commit -m "chore(sdd): sprint NNN artifacts"`
+- Zero commits in a sprint triggers deadlock detection in the outer loop

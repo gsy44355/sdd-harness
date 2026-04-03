@@ -261,6 +261,23 @@ check_git_progress() {
     fi
 }
 
+check_uncommitted_changes() {
+    # Warn if there are uncommitted changes after a sprint.
+    # This indicates Claude didn't commit as instructed — log it for visibility.
+    local task_id="$1"
+
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        return  # Not a git repo, skip
+    fi
+
+    local uncommitted
+    uncommitted=$(git status --porcelain 2>/dev/null | grep -v '^?? \.sdd/' | head -1) || true
+    if [ -n "$uncommitted" ]; then
+        print_warn "Uncommitted changes detected after sprint. Claude should have committed."
+        print_info "Run 'git status' to review. These will carry into the next sprint."
+    fi
+}
+
 # ============================================================
 # Stream output processing
 # ============================================================
@@ -630,8 +647,17 @@ Also record any discoveries in .sdd/shared-notes.md.
 ## Key Principles
 - Follow the contract exactly. Don't add unrequested features.
 - Test everything. Every behavior in success criteria needs a test.
-- Commit often. Each logical unit of work gets its own commit.
 - Be honest. If something was hard or uncertain, say so.
+
+## IMPORTANT: Git Commits (Mandatory)
+You MUST make git commits during implementation. This is NOT optional.
+1. First check: is this a git repo? If not, run \`git init\` first.
+2. Ensure a \`.gitignore\` exists with sensible defaults (node_modules, .env, build/, etc.). Create one if missing.
+3. Commit after each logical unit of work (e.g., adding a module, passing tests).
+4. Use clear commit messages referencing the task id: \`feat(task-001): add user model\`.
+5. After writing implementation.md, do a final commit including the .sdd/ sprint artifacts:
+   \`git add .sdd/sprints/ .sdd/tasks/ .sdd/shared-notes.md && git commit -m "chore(sdd): record sprint NNN artifacts"\`
+6. The outer loop uses git commit history to detect progress — zero commits = deadlock trigger.
 PROMPT_EOF
 }
 
@@ -1081,7 +1107,9 @@ main() {
             print_status "Sprint $sprint_num complete: $task_id PASSED"
             print_progress "$completed" "$total"
 
+            # Check if Claude made commits (used for deadlock detection)
             check_git_progress
+            check_uncommitted_changes "$task_id"
 
             # ── Reflection check ──
             local sprints_since reflection_interval
